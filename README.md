@@ -1,203 +1,419 @@
-# RAG Chat — PDF / Word / TXT + ChromaDB + Ollama + Streamlit
+# 📚 Gemini RAG Chat
 
-A local Retrieval-Augmented Generation (RAG) chat app. Upload PDF, DOCX, or TXT
-files, they get chunked and embedded, stored in **ChromaDB**, and questions are
-answered using an **Ollama** chat model grounded in the retrieved chunks. UI is
-built with **Streamlit**.
+A Retrieval-Augmented Generation (RAG) chatbot built with **Google Gemini AI**, **ChromaDB**, and **Streamlit**.
 
-## Files in this repo
-
-```
-app.py             # Streamlit UI (chat + document upload/management)
-rag_utils.py       # Core RAG engine: extraction, chunking, embeddings, retrieval, generation
-requirements.txt   # Python dependencies
-.gitignore
-README.md
-```
-
-## ⚠️ Important: Ollama needs a running server
-
-Ollama is not a Python library that runs "inside" your app — it's a local
-server process (`ollama serve`) that the app talks to over HTTP
-(`http://localhost:11434` by default). This has one big implication for
-deployment:
-
-> **Streamlit Community Cloud cannot run Ollama itself** (no way to install/run
-> a background system binary there). You have two supported paths:
-
-1. **Run everything locally** (simplest, recommended for personal use) — both
-   Streamlit and Ollama run on your machine.
-2. **Self-host** — run Ollama + Streamlit together on your own server/VPS
-   (e.g. via Docker Compose, see below), and open the Streamlit port to the
-   internet yourself.
-3. **Hybrid** — run Ollama on a server you control (VPS, home server, etc.)
-   with its port exposed, deploy just the Streamlit app to Streamlit
-   Community Cloud, and set the `OLLAMA_HOST` in the app's sidebar / secrets
-   to point at that server's URL. This works because the app only needs
-   outbound HTTPS access to your Ollama host.
+Upload PDF, DOCX, or TXT documents, automatically index them into a vector database, and ask questions about their contents. The chatbot retrieves the most relevant information from your uploaded documents and generates accurate responses using **Google Gemini**.
 
 ---
 
-## 1. Local setup (recommended first step)
+# 🚀 Features
 
-### Install Ollama
-Download from https://ollama.com and install it, then pull the models you'll use:
+- 📄 Upload PDF, DOCX, and TXT documents
+- 🧩 Automatic document chunking
+- 🧠 Google Gemini Embeddings (`text-embedding-004`)
+- 🤖 Google Gemini 2.5 Flash / Pro for answer generation
+- 🔎 Semantic search using ChromaDB
+- 💬 Interactive Streamlit chat interface
+- 📚 Source citations for every answer
+- 📂 Persistent local ChromaDB storage
+- ☁️ Streamlit Cloud deployment ready
+- ⚡ No Ollama installation required
 
-```bash
-ollama pull nomic-embed-text   # embedding model
-ollama pull llama3.1           # chat model (or any model you prefer, e.g. mistral, phi3)
+---
+
+# 📂 Project Structure
+
+```
+app.py                  # Streamlit UI
+rag_utils.py            # RAG engine
+requirements.txt
+README.md
+.gitignore
+chroma_db/              # Created automatically
 ```
 
-Start the Ollama server (usually starts automatically after install; if not):
+---
 
-```bash
-ollama serve
+# 🏗 Architecture
+
+```
+                User Uploads Documents
+                         │
+                         ▼
+              PDF / DOCX / TXT Parser
+                         │
+                         ▼
+                 Text Chunking
+                         │
+                         ▼
+      Gemini Embeddings (text-embedding-004)
+                         │
+                         ▼
+                    ChromaDB
+                         │
+                         ▼
+                  User Question
+                         │
+                         ▼
+      Gemini Embeddings (Question)
+                         │
+                         ▼
+            Similarity Search
+                         │
+                         ▼
+            Retrieved Context
+                         │
+                         ▼
+      Gemini 2.5 Flash / Gemini 2.5 Pro
+                         │
+                         ▼
+                 Final Response
 ```
 
-### Clone the repo & install Python deps
+---
+
+# 🛠 Requirements
+
+- Python 3.10+
+- Google Gemini API Key
+- Internet Connection
+
+---
+
+# 📦 Installation
+
+Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/<your-repo>.git
-cd <your-repo>
+git clone https://github.com/<your-username>/<repository-name>.git
+
+cd <repository-name>
+```
+
+Create a virtual environment
+
+### Windows
+
+```bash
 python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+
+venv\Scripts\activate
+```
+
+### Linux / macOS
+
+```bash
+python3 -m venv venv
+
+source venv/bin/activate
+```
+
+Install dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### Run the app
+---
+
+# 🔑 Gemini API Key
+
+Create a `.env` file in the project root.
+
+```
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+```
+
+You can get a free API key from:
+
+https://aistudio.google.com/app/apikey
+
+---
+
+# ▶ Running the Application
 
 ```bash
 streamlit run app.py
 ```
 
-Open the URL Streamlit prints (usually `http://localhost:8501`), upload your
-files in the sidebar, click **Process & Index Documents**, then ask questions
-in the chat box.
+Open
+
+```
+http://localhost:8501
+```
 
 ---
 
-## 2. Pushing this to GitHub
+# ☁ Deploying on Streamlit Cloud
+
+Unlike Ollama, **Gemini runs entirely in the cloud**, so users do **not** need to install anything.
+
+## Step 1
+
+Push your repository to GitHub.
 
 ```bash
 git init
+
 git add .
-git commit -m "Initial commit: RAG chat app with ChromaDB + Ollama"
+
+git commit -m "Initial commit"
+
 git branch -M main
-git remote add origin https://github.com/<your-username>/<your-repo>.git
+
+git remote add origin https://github.com/<username>/<repository>.git
+
 git push -u origin main
 ```
 
-(`chroma_db/` — the local vector store folder created at runtime — is already
-excluded via `.gitignore` so you don't commit your indexed data.)
+---
+
+## Step 2
+
+Go to
+
+https://share.streamlit.io
+
+Deploy your GitHub repository.
 
 ---
 
-## 3. Deploying
+## Step 3
 
-### Option A — Streamlit Community Cloud + a remotely hosted Ollama
-1. Push this repo to GitHub (above).
-2. Set up Ollama on a machine with a public/reachable address (VPS, home
-   server behind a reverse proxy, etc.), pull your models there, and make sure
-   port 11434 (or whatever you configure) is reachable over HTTPS — ideally
-   behind a reverse proxy with auth, since Ollama has no built-in auth.
-3. Go to https://share.streamlit.io, connect your GitHub repo, and deploy
-   `app.py`.
-4. In the deployed app's sidebar, set **Ollama host** to your server's URL
-   (e.g. `https://ollama.yourdomain.com`). You can also hardcode a default via
-   Streamlit **Secrets** (`Settings → Secrets`) and read it with
-   `st.secrets["OLLAMA_HOST"]` if you prefer not to type it each time — the
-   current app reads `OLLAMA_HOST` as an env var default, so you can also set
-   it under the app's "Advanced settings → Environment variables" when
-   deploying.
+Add your Gemini API Key.
 
-### Option B — Full self-host with Docker Compose (Ollama + Streamlit together)
-Create a `docker-compose.yml` like this in the repo root:
+In Streamlit Cloud
 
-```yaml
-version: "3.9"
-services:
-  ollama:
-    image: ollama/ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
+```
+Settings
 
-  streamlit-app:
-    build: .
-    ports:
-      - "8501:8501"
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-    depends_on:
-      - ollama
+↓
 
-volumes:
-  ollama_data:
+Secrets
 ```
 
-And a `Dockerfile`:
+Add
 
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 8501
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+```toml
+GEMINI_API_KEY="YOUR_API_KEY"
 ```
 
-Then:
-
-```bash
-docker compose up -d
-docker compose exec ollama ollama pull nomic-embed-text
-docker compose exec ollama ollama pull llama3.1
-```
-
-Visit `http://<your-server-ip>:8501`. Put this behind a reverse proxy
-(nginx/Caddy) with HTTPS and, ideally, basic auth if exposing it publicly.
+or add it as an Environment Variable.
 
 ---
 
-## Configuration reference
+# ⚙ Configuration
 
-These can be set as environment variables (defaults shown), and most are also
-editable live from the sidebar:
+| Variable | Default | Description |
+|------------|-------------------|------------------------------|
+| GEMINI_API_KEY | Required | Google Gemini API Key |
+| CHROMA_DIR | chroma_db | Chroma database directory |
+| CHAT_MODEL | gemini-2.5-flash | Gemini chat model |
+| EMBED_MODEL | text-embedding-004 | Embedding model |
 
-| Variable             | Default                      | Purpose                          |
-|----------------------|-------------------------------|-----------------------------------|
-| `OLLAMA_HOST`        | `http://localhost:11434`      | Ollama server URL                |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text`             | Embedding model                  |
-| `OLLAMA_CHAT_MODEL`  | `llama3.1`                     | Chat/generation model            |
-| `CHROMA_DIR`         | `chroma_db`                    | Local folder for the vector store|
+---
 
-## How it works
+# 📖 How It Works
 
-1. **Upload** — PDF/DOCX/TXT files are parsed into raw text (`pypdf`,
-   `python-docx`).
-2. **Chunk** — text is split into ~1000-character overlapping chunks so
-   context isn't lost at boundaries.
-3. **Embed** — each chunk is embedded via Ollama's embedding model
-   (`nomic-embed-text` by default).
-4. **Store** — chunks + embeddings + metadata (source file name) are stored
-   in a persistent ChromaDB collection on disk.
-5. **Retrieve** — on each question, the question is embedded and the most
-   similar chunks are pulled from ChromaDB.
-6. **Generate** — the retrieved chunks are inserted into a prompt and sent to
-   an Ollama chat model, which answers grounded in that context and cites
-   source file names.
+### 1. Upload Documents
 
-## Troubleshooting
+Supported formats
 
-- **"Error contacting Ollama"** — confirm `ollama serve` is running and the
-  host/port in the sidebar match where it's listening.
-- **Model not found** — run `ollama pull <model-name>` for both the embedding
-  and chat models before using the app.
-- **Slow indexing** — large PDFs generate many chunks, each requiring an
-  embedding call; this is normal for local models. Consider a smaller/faster
-  embedding model if needed.
-- **Empty/garbled PDF text** — scanned/image-only PDFs have no extractable
-  text layer; you'd need OCR (not included here) before this pipeline can
-  index them.
+- PDF
+- DOCX
+- TXT
+
+---
+
+### 2. Extract Text
+
+The application extracts text using
+
+- pypdf
+- python-docx
+
+---
+
+### 3. Chunk Documents
+
+Documents are split into overlapping chunks.
+
+Default
+
+- Chunk Size: 1000 characters
+- Overlap: 200 characters
+
+---
+
+### 4. Generate Embeddings
+
+Each chunk is converted into a vector using
+
+```
+text-embedding-004
+```
+
+---
+
+### 5. Store Embeddings
+
+Embeddings are stored in
+
+```
+ChromaDB
+```
+
+with metadata such as
+
+- source filename
+- chunk number
+
+---
+
+### 6. Retrieve
+
+When a user asks a question,
+
+the application
+
+- embeds the question
+- searches ChromaDB
+- retrieves the most relevant chunks
+
+---
+
+### 7. Generate Answer
+
+Retrieved chunks are sent to
+
+```
+Gemini 2.5 Flash
+```
+
+(or Gemini 2.5 Pro)
+
+to generate a grounded response.
+
+Every answer includes references to the source documents.
+
+---
+
+# 📚 Tech Stack
+
+| Component | Technology |
+|------------|------------|
+| Frontend | Streamlit |
+| LLM | Google Gemini 2.5 |
+| Embeddings | text-embedding-004 |
+| Vector Database | ChromaDB |
+| Document Parser | pypdf |
+| Word Parser | python-docx |
+| Language | Python |
+
+---
+
+# 📸 Example Workflow
+
+```
+Upload:
+
+📄 AI_Research.pdf
+
+↓
+
+Index Document
+
+↓
+
+Ask
+
+"What are the main contributions?"
+
+↓
+
+Gemini retrieves the most relevant chunks.
+
+↓
+
+Answer
+
+"The paper proposes..."
+
+↓
+
+Source
+
+AI_Research.pdf
+```
+
+---
+
+# ⚠ Troubleshooting
+
+## Invalid API Key
+
+Verify your
+
+```
+GEMINI_API_KEY
+```
+
+is correct.
+
+---
+
+## No Documents Indexed
+
+Upload documents and click
+
+```
+Process Documents
+```
+
+before asking questions.
+
+---
+
+## Empty PDF
+
+Scanned PDFs contain images instead of text.
+
+OCR is not included.
+
+---
+
+## Slow Responses
+
+Large documents generate many chunks.
+
+This is expected.
+
+---
+
+# 🔮 Future Improvements
+
+- OCR support
+- Image understanding
+- Excel & CSV support
+- PowerPoint support
+- Streaming responses
+- Hybrid search (Keyword + Vector)
+- Conversation memory
+- Authentication
+- Multi-user support
+- Cloud vector databases (Pinecone, Weaviate, PGVector)
+
+---
+
+# 👨‍💻 Built With
+
+- Google Gemini AI
+- Streamlit
+- ChromaDB
+- Python
+
+---
+
+# 📄 License
+
+This project is licensed under the MIT License.
