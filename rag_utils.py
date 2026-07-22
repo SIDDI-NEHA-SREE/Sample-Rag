@@ -2,12 +2,12 @@
 rag_utils.py
 Core RAG engine used by app.py
 
-Handles:
-  - extracting text from PDF / DOCX / TXT
-  - chunking text
-  - creating embeddings via Ollama
-  - storing / querying vectors in ChromaDB
-  - generating answers via an Ollama chat model
+Uses:
+- Google Gemini (Embeddings + LLM)
+- ChromaDB
+- PDF / DOCX / TXT
+
+Author: Updated for Gemini AI
 """
 
 import os
@@ -15,178 +15,355 @@ import uuid
 from pathlib import Path
 
 import chromadb
-import ollama
-from pypdf import PdfReader
 import docx
 
+from dotenv import load_dotenv
+from google import genai
+from pypdf import PdfReader
 
-# ---------------------------------------------------------------------------
-# Configuration (can be overridden at runtime from app.py, e.g. via sidebar)
-# ---------------------------------------------------------------------------
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.1")
+# ---------------------------------------------------------------------
+# Load environment variables
+# ---------------------------------------------------------------------
+
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not GEMINI_API_KEY:
+    raise ValueError(
+        "GEMINI_API_KEY not found. Please add it to your .env file."
+    )
+
+# ---------------------------------------------------------------------
+# Gemini Configuration
+# ---------------------------------------------------------------------
+
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+EMBED_MODEL = "text-embedding-004"
+CHAT_MODEL = "gemini-2.5-flash"
+
+# ---------------------------------------------------------------------
+# Chroma Configuration
+# ---------------------------------------------------------------------
+
 CHROMA_DIR = os.getenv("CHROMA_DIR", "chroma_db")
 COLLECTION_NAME = "rag_documents"
 
-_client = ollama.Client(host=OLLAMA_HOST)
+# ---------------------------------------------------------------------
+# Document Extraction
+# ---------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Document text extraction
-# ---------------------------------------------------------------------------
 def extract_text_from_pdf(file_path: str) -> str:
-    text_parts = []
     reader = PdfReader(file_path)
+
+    pages = []
+
     for page in reader.pages:
-        text_parts.append(page.extract_text() or "")
-    return "\n".join(text_parts)
+        pages.append(page.extract_text() or "")
+
+    return "\n".join(pages)
 
 
-def extract_text_from_docx(file_path: str) -> str:
+def extract_text_from_docx(file_path: str) ->str:
     document = docx.Document(file_path)
-    return "\n".join(p.text for p in document.paragraphs if p.text.strip())
+
+    return "\n".join(
+        p.text
+        for p in document.paragraphs
+        if p.text.strip()
+    )
 
 
-def extract_text_from_txt(file_path: str) -> str:
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+def extract_text_from_txt(file_path: str) ->str:
+    with open(
+        file_path,
+        "r",
+        encoding="utf-8",
+        errors="ignore"
+    ) as f:
         return f.read()
 
 
-def extract_text(file_path: str) -> str:
+def extract_text(file_path: str) ->str:
+
     ext = Path(file_path).suffix.lower()
+
     if ext == ".pdf":
         return extract_text_from_pdf(file_path)
-    if ext == ".docx":
+
+    elif ext == ".docx":
         return extract_text_from_docx(file_path)
-    if ext == ".txt":
+
+    elif ext == ".txt":
         return extract_text_from_txt(file_path)
-    raise ValueError(f"Unsupported file type: {ext}")
+
+    raise ValueError(f"Unsupported file: {ext}")
 
 
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
 # Chunking
-# ---------------------------------------------------------------------------
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200):
-    """Simple sliding-window character chunker with overlap."""
+# ---------------------------------------------------------------------
+
+
+def chunk_text(
+    text: str,
+    chunk_size: int = 1000,
+    overlap: int = 200,
+):
     text = text.strip()
+
     if not text:
         return []
 
     chunks = []
+
     start = 0
-    length = len(text)
-    while start < length:
-        end = min(start + chunk_size, length)
+
+    while start < len(text):
+
+        end = min(start + chunk_size, len(text))
+
         chunks.append(text[start:end])
-        if end == length:
+
+        if end == len(text):
             break
-        start = end - overlap  # overlap for context continuity
+
+        start = end - overlap
+
     return chunks
 
 
-# ---------------------------------------------------------------------------
-# Embeddings (via Ollama)
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# Gemini Embeddings
+# ---------------------------------------------------------------------
+
+
 def embed_text(text: str):
-    response = _client.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
+
+    response = client.models.embed_content(
+        model=EMBED_MODEL,
+        contents=text
+    )
+
+    return response.embeddings[0].values
 
 
-# ---------------------------------------------------------------------------
-# ChromaDB storage
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# ChromaDB
+# ---------------------------------------------------------------------
+
+
 def get_chroma_collection():
+
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
-    return chroma_client.get_or_create_collection(name=COLLECTION_NAME)
+
+    return chroma_client.get_or_create_collection(
+        name=COLLECTION_NAME
+    )
 
 
-def add_document_to_store(file_path: str, file_name: str, progress_callback=None) -> int:
-    """Extract, chunk, embed, and store a single file. Returns number of chunks added."""
+# ---------------------------------------------------------------------
+# Index Documents
+# ---------------------------------------------------------------------
+
+
+def add_document_to_store(
+    file_path: str,
+    file_name: str,
+    progress_callback=None
+):
+
     text = extract_text(file_path)
+
     chunks = chunk_text(text)
+
     if not chunks:
         return 0
 
     collection = get_chroma_collection()
-    ids, embeddings, metadatas, documents = [], [], [], []
+
+    ids = []
+    embeddings = []
+    documents = []
+    metadatas = []
+
+    total = len(chunks)
 
     for i, chunk in enumerate(chunks):
-        embeddings.append(embed_text(chunk))
-        ids.append(f"{file_name}-{uuid.uuid4().hex[:8]}-{i}")
-        metadatas.append({"source": file_name, "chunk_index": i})
-        documents.append(chunk)
-        if progress_callback:
-            progress_callback(i + 1, len(chunks))
 
-    collection.add(ids=ids, embeddings=embeddings, metadatas=metadatas, documents=documents)
-    return len(chunks)
+        embedding = embed_text(chunk)
+
+        ids.append(
+            f"{file_name}-{uuid.uuid4().hex[:8]}-{i}"
+        )
+
+        embeddings.append(embedding)
+
+        documents.append(chunk)
+
+        metadatas.append(
+            {
+                "source": file_name,
+                "chunk_index": i
+            }
+        )
+
+        if progress_callback:
+            progress_callback(i + 1, total)
+
+    collection.add(
+        ids=ids,
+        embeddings=embeddings,
+        documents=documents,
+        metadatas=metadatas
+    )
+
+    return total
+
+
+# ---------------------------------------------------------------------
+# Clear Database
+# ---------------------------------------------------------------------
 
 
 def clear_store():
+
     chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
+
     try:
         chroma_client.delete_collection(COLLECTION_NAME)
     except Exception:
         pass
 
 
+# ---------------------------------------------------------------------
+# Indexed Files
+# ---------------------------------------------------------------------
+
+
 def get_indexed_sources():
+
     collection = get_chroma_collection()
+
     data = collection.get()
+
     sources = set()
-    for meta in data.get("metadatas", []) or []:
+
+    for meta in data.get("metadatas", []):
+
         if meta and "source" in meta:
             sources.add(meta["source"])
+
     return sorted(sources)
 
 
-# ---------------------------------------------------------------------------
-# Retrieval + Generation
-# ---------------------------------------------------------------------------
-def retrieve_context(question: str, n_results: int = 5):
+# ---------------------------------------------------------------------
+# Retrieval
+# ---------------------------------------------------------------------
+
+
+def retrieve_context(
+    question: str,
+    n_results: int = 5
+):
+
     collection = get_chroma_collection()
+
     if collection.count() == 0:
         return []
 
-    q_embedding = embed_text(question)
-    results = collection.query(query_embeddings=[q_embedding], n_results=n_results)
+    query_embedding = embed_text(question)
 
-    docs = results.get("documents", [[]])[0]
-    metas = results.get("metadatas", [[]])[0]
-    dists = results.get("distances", [[]])[0]
-
-    return [
-        {"text": doc, "source": meta.get("source", "unknown"), "distance": dist}
-        for doc, meta, dist in zip(docs, metas, dists)
-    ]
-
-
-def build_prompt(question: str, contexts) -> str:
-    context_text = "\n\n---\n\n".join(
-        f"[Source: {c['source']}]\n{c['text']}" for c in contexts
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=n_results
     )
-    return f"""You are a helpful assistant answering questions using ONLY the context below.
-If the answer isn't in the context, say you don't know — do not make something up.
+
+    docs = results["documents"][0]
+    metas = results["metadatas"][0]
+    dists = results["distances"][0]
+
+    contexts = []
+
+    for doc, meta, dist in zip(
+        docs,
+        metas,
+        dists
+    ):
+
+        contexts.append(
+            {
+                "text": doc,
+                "source": meta.get(
+                    "source",
+                    "Unknown"
+                ),
+                "distance": dist,
+            }
+        )
+
+    return contexts
+
+
+# ---------------------------------------------------------------------
+# Prompt
+# ---------------------------------------------------------------------
+
+
+def build_prompt(
+    question,
+    contexts
+):
+
+    context = "\n\n-----------------\n\n".join(
+        f"Source: {c['source']}\n\n{c['text']}"
+        for c in contexts
+    )
+
+    return f"""
+You are a helpful AI assistant.
+
+Answer ONLY using the information provided in the context.
+
+If the answer cannot be found in the context, reply:
+
+"I couldn't find that information in the uploaded documents."
 
 Context:
-{context_text}
 
-Question: {question}
+{context}
 
-Give a clear, concise answer and mention which source file(s) it came from."""
+Question:
 
+{question}
 
-def generate_answer(question: str, contexts, chat_history=None) -> str:
-    prompt = build_prompt(question, contexts)
-    messages = list(chat_history) if chat_history else []
-    messages.append({"role": "user", "content": prompt})
-    response = _client.chat(model=CHAT_MODEL, messages=messages)
-    return response["message"]["content"]
+Provide a concise and accurate answer.
+
+Mention the source document(s) used.
+"""
 
 
-def refresh_client(host: str):
-    """Recreate the Ollama client if the host is changed at runtime (e.g. from the UI)."""
-    global _client, OLLAMA_HOST
-    OLLAMA_HOST = host
-    _client = ollama.Client(host=host)
+# ---------------------------------------------------------------------
+# Gemini Answer Generation
+# ---------------------------------------------------------------------
+
+
+def generate_answer(
+    question,
+    contexts,
+    chat_history=None
+):
+
+    prompt = build_prompt(
+        question,
+        contexts
+    )
+
+    response = client.models.generate_content(
+        model=CHAT_MODEL,
+        contents=prompt
+    )
+
+    return response.text
