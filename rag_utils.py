@@ -40,7 +40,7 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-EMBED_MODEL = "text-embedding-004"
+EMBED_MODEL = "gemini-embedding-001"
 CHAT_MODEL = "gemini-2.5-flash"
 
 # ---------------------------------------------------------------------
@@ -140,10 +140,9 @@ def chunk_text(
 # ---------------------------------------------------------------------
 
 
-def embed_text(text: str):
-
+def embed_text(text):
     response = client.models.embed_content(
-        model=EMBED_MODEL,
+        model="gemini-embedding-001",
         contents=text
     )
 
