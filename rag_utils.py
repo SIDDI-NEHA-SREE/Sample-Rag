@@ -41,7 +41,7 @@ if not GEMINI_API_KEY:
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 EMBED_MODEL = "gemini-embedding-001"
-CHAT_MODEL = "gemini-2.5-flash"
+CHAT_MODEL = "gemini-2.5-flash-lite"
 
 # ---------------------------------------------------------------------
 # Chroma Configuration
