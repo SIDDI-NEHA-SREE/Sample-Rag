@@ -1,132 +1,186 @@
-"""
-app.py
-Streamlit RAG chat app — PDF / DOCX / TXT documents, ChromaDB for retrieval,
-Ollama for embeddings + chat generation.
-"""
 
 import os
 import tempfile
-
 import streamlit as st
-
 import rag_utils as rag
 
-st.set_page_config(page_title="RAG Chat — Ollama + ChromaDB", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Gemini RAG Chat", page_icon="📚", layout="wide")
 
-st.title("📚 RAG Chat")
-st.caption("Upload PDF / Word / TXT files and chat with them. Powered by ChromaDB + Ollama.")
+st.markdown("""
+<style>
+
+.block-container{
+    max-width:1250px;
+    padding-top:1rem;
+}
+
+div[data-testid="stMetric"]{
+    border-radius:14px;
+    padding:15px;
+    border:1px solid rgba(128,128,128,.25);
+    box-shadow:0 2px 8px rgba(0,0,0,.05);
+}
+
+.stButton>button{
+    border-radius:10px;
+    height:45px;
+    font-weight:600;
+}
+
+.stChatMessage{
+    border-radius:15px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+# 📚 Gemini RAG Assistant
+
+### Chat with your documents using Google's Gemini AI
+
+Upload PDFs, Word files, or text files and get accurate answers powered by Retrieval-Augmented Generation (RAG).
+""")
 
 if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # list of {"role", "content", "sources"}
+    st.session_state.chat_history=[]
 
-# ---------------------------------------------------------------------------
-# Sidebar — settings + document management
-# ---------------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Settings")
-
-    ollama_host = st.text_input(
-        "Ollama host",
-        value=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        help="URL where your Ollama server is running (local or remote).",
+    st.header("⚙ Settings")
+    rag.CHAT_MODEL=st.selectbox(
+        "Gemini Model",
+        ["gemini-2.5-flash","gemini-2.5-pro"],
+        index=0
     )
-    embed_model = st.text_input("Embedding model", value=os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"))
-    chat_model = st.text_input("Chat model", value=os.getenv("OLLAMA_CHAT_MODEL", "llama3.1"))
-    n_results = st.slider("Chunks to retrieve per question", 1, 10, 5)
-
-    # push any changed settings into rag_utils
-    if ollama_host != rag.OLLAMA_HOST:
-        rag.refresh_client(ollama_host)
-    rag.EMBED_MODEL = embed_model
-    rag.CHAT_MODEL = chat_model
+    n_results=st.slider("Retrieved Chunks",1,10,5)
 
     st.divider()
     st.header("📄 Documents")
 
-    uploaded_files = st.file_uploader(
-        "Upload PDF / DOCX / TXT files",
-        type=["pdf", "docx", "txt"],
-        accept_multiple_files=True,
+    uploaded=st.file_uploader(
+        "Upload files",
+        type=["pdf","docx","txt"],
+        accept_multiple_files=True
     )
 
-    if st.button("Process & Index Documents", use_container_width=True, disabled=not uploaded_files):
-        progress_bar = st.progress(0, text="Starting...")
-        total = len(uploaded_files)
-        for idx, uploaded_file in enumerate(uploaded_files):
-            suffix = os.path.splitext(uploaded_file.name)[1]
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(uploaded_file.getbuffer())
-                tmp_path = tmp.name
+    if st.button("🚀 Process Documents", use_container_width=True, disabled=not uploaded):
+        progress=st.progress(0)
+        total=len(uploaded)
+        for i,file in enumerate(uploaded):
+            suffix=os.path.splitext(file.name)[1]
+            with tempfile.NamedTemporaryFile(delete=False,suffix=suffix) as tmp:
+                tmp.write(file.getbuffer())
+                path=tmp.name
             try:
-                progress_bar.progress(idx / total, text=f"Indexing {uploaded_file.name}...")
-                n_chunks = rag.add_document_to_store(tmp_path, uploaded_file.name)
-                st.success(f"Indexed **{uploaded_file.name}** ({n_chunks} chunks)")
-            except Exception as e:
-                st.error(f"Failed on {uploaded_file.name}: {e}")
+                rag.add_document_to_store(path,file.name)
             finally:
-                os.remove(tmp_path)
-        progress_bar.progress(1.0, text="Done!")
+                os.remove(path)
+            progress.progress((i+1)/total,text=f"Indexed {file.name}")
+        st.success("Indexing completed.")
 
     st.divider()
-    indexed_sources = rag.get_indexed_sources()
-    st.subheader(f"Indexed files ({len(indexed_sources)})")
-    for s in indexed_sources:
-        st.write(f"• {s}")
+    files=rag.get_indexed_sources()
+    st.subheader(f"Indexed Files ({len(files)})")
+    for f in files:
+        st.markdown(f"""
+<div style="
+padding:10px;
+border-radius:10px;
+border:1px solid #ddd;
+margin-bottom:8px;">
+📄 <b>{f}</b>
+</div>
+""", unsafe_allow_html=True)
 
-    if st.button("🗑️ Clear all indexed documents", use_container_width=True):
+    if st.button("🗑 Clear Knowledge Base", use_container_width=True):
         rag.clear_store()
-        st.session_state.chat_history = []
+        st.session_state.chat_history=[]
         st.rerun()
 
-# ---------------------------------------------------------------------------
-# Main — chat interface
-# ---------------------------------------------------------------------------
+docs = len(rag.get_indexed_sources())
+
+try:
+    chunks = rag.get_chroma_collection().count()
+except:
+    chunks = 0
+
+col1,col2,col3,col4 = st.columns(4)
+
+col1.metric("📄 Documents", docs)
+col2.metric("🧩 Chunks", chunks)
+col3.metric("🤖 Model", rag.CHAT_MODEL)
+col4.metric("✅ Status", "Ready")
+
+st.metric("Stored Chunks",0)
+
+st.divider()
+
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg.get("sources"):
-            with st.expander("Sources"):
+            with st.expander("📄 Sources"):
                 for s in msg["sources"]:
-                    st.markdown(f"**{s['source']}**  (distance: {s['distance']:.3f})")
-                    preview = s["text"][:500] + ("..." if len(s["text"]) > 500 else "")
-                    st.text(preview)
+                    st.markdown(f"**{s['source']}**")
+                    st.caption(f"Distance: {s['distance']:.4f}")
+                    st.write(s["text"][:600]+"..." if len(s["text"])>600 else s["text"])
+if not rag.get_indexed_sources():
+    st.info("""
+👋 Welcome!
 
-question = st.chat_input("Ask a question about your documents...")
+Upload one or more documents from the sidebar.
+
+Then click **Process Documents**.
+
+After indexing finishes, start asking questions.
+""")
+
+st.markdown("### 💡 Try asking")
+
+c1,c2,c3 = st.columns(3)
+
+if c1.button("📄 Summarize"):
+    question = "Summarize the uploaded documents."
+
+if c2.button("📌 Main Topics"):
+    question = "What are the main topics?"
+
+if c3.button("📅 Important Dates"):
+    question = "List all important dates."
+
+question=st.chat_input("Ask something about your documents...")
 
 if question:
-    st.session_state.chat_history.append({"role": "user", "content": question, "sources": None})
+    st.session_state.chat_history.append({"role":"user","content":question})
+
     with st.chat_message("user"):
         st.markdown(question)
 
-    contexts = []
-    answer = ""
-
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            try:
-                contexts = rag.retrieve_context(question, n_results=n_results)
-                if not contexts:
-                    answer = "I don't have any indexed documents yet. Please upload and process files first."
-                else:
-                    history_for_model = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_history[:-1]
-                        if m["role"] in ("user", "assistant")
-                    ][-6:]
-                    answer = rag.generate_answer(question, contexts, chat_history=history_for_model)
-            except Exception as e:
-                answer = (
-                    f"⚠️ Error contacting Ollama at `{rag.OLLAMA_HOST}`: {e}\n\n"
-                    "Make sure Ollama is running and reachable, and that the model "
-                    "names in the sidebar are pulled (`ollama pull <model>`)."
-                )
+            contexts=rag.retrieve_context(question,n_results=n_results)
+            if not contexts:
+                answer="Please upload and index documents first."
+            else:
+                try:
+                    answer=rag.generate_answer(question,contexts)
+                except Exception as e:
+                    answer=f"Error: {e}"
 
         st.markdown(answer)
-        if contexts:
-            with st.expander("Sources"):
-                for c in contexts:
-                    st.markdown(f"**{c['source']}**  (distance: {c['distance']:.3f})")
-                    preview = c["text"][:500] + ("..." if len(c["text"]) > 500 else "")
-                    st.text(preview)
 
-    st.session_state.chat_history.append({"role": "assistant", "content": answer, "sources": contexts})
+        if contexts:
+            with st.expander("📄 Sources Used"):
+                for c in contexts:
+                    st.markdown(f"**{c['source']}**")
+                    st.caption(f"Distance: {c['distance']:.4f}")
+                    st.code(
+                        c["text"][:700],
+                        language="text"
+                    )
+
+    st.session_state.chat_history.append({
+        "role":"assistant",
+        "content":answer,
+        "sources":contexts if contexts else None
+    })
