@@ -49,7 +49,7 @@ with st.sidebar:
     st.header("⚙ Settings")
     rag.CHAT_MODEL=st.selectbox(
         "Gemini Model",
-        ["gemini-2.5-flash","gemini-2.5-pro"],
+        ["gemini-2.5-flash-lite","gemini-2.5-pro"],
         index=0
     )
     n_results=st.slider("Retrieved Chunks",1,10,5)
@@ -137,18 +137,23 @@ After indexing finishes, start asking questions.
 
 st.markdown("### 💡 Try asking")
 
-c1,c2,c3 = st.columns(3)
+question = None
+
+c1, c2, c3 = st.columns(3)
 
 if c1.button("📄 Summarize"):
-    question = "Summarize the uploaded documents."
+    question = "Summarize the uploaded document."
 
 if c2.button("📌 Main Topics"):
-    question = "What are the main topics?"
+    question = "What are the main topics discussed in this document?"
 
 if c3.button("📅 Important Dates"):
-    question = "List all important dates."
+    question = "List all important dates mentioned in the document."
 
-question=st.chat_input("Ask something about your documents...")
+user_question = st.chat_input("Ask something about your documents...")
+
+if user_question:
+    question = user_question
 
 if question:
     st.session_state.chat_history.append({"role":"user","content":question})
