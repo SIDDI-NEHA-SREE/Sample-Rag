@@ -311,54 +311,51 @@ def retrieve_context(
 # ---------------------------------------------------------------------
 
 
-def build_prompt(
-    question,
-    contexts
-):
+def build_prompt(question, contexts):
 
-    context = "\n\n-----------------\n\n".join(
-        f"Source: {c['source']}\n\n{c['text']}"
+    context = "\n\n".join(
+        f"Source: {c['source']}\n{c['text']}"
         for c in contexts
     )
 
     return f"""
-You are a helpful AI assistant.
+You are an intelligent AI Document Assistant.
 
-Answer ONLY using the information provided in the context.
+Your job is to answer ONLY using the information provided in the retrieved document context.
 
-If the answer cannot be found in the context, reply:
+Rules:
+- Never make up facts.
+- If the answer isn't present, say:
+  "I couldn't find that information in the uploaded documents."
+- Answer clearly using Markdown.
+- Use bullet points when appropriate.
+- For summaries, provide a concise overview followed by key points.
+- Mention the source file(s) used.
 
-"I couldn't find that information in the uploaded documents."
-
-Context:
+========================
+DOCUMENT CONTEXT
+========================
 
 {context}
 
-Question:
+========================
+USER QUESTION
+========================
 
 {question}
 
-Provide a concise and accurate answer.
-
-Mention the source document(s) used.
+========================
+ANSWER
+========================
 """
-
-
 # ---------------------------------------------------------------------
 # Gemini Answer Generation
 # ---------------------------------------------------------------------
 
 
-def generate_answer(
-    question,
-    contexts,
-    chat_history=None
-):
+def generate_answer(question, contexts):
 
-    prompt = build_prompt(
-        question,
-        contexts
-    )
+    prompt = build_prompt(question, contexts)
 
     response = client.models.generate_content(
         model=CHAT_MODEL,
